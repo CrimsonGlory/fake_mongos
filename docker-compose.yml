@@ -2,7 +2,9 @@ version: '2.4'
 services:
   fake_mongos:
     build: .
-    #command: bash -c "python -u /myapp/fake_mongos.py"
-    command: bash -c "sleep 9999999"
+    command: bash -c "python -u /myapp/fake_mongos.py"
+    # command: bash -c "sleep 999999999"
+    ports:
+      - "4321:4321"
     volumes:
       - .:/myapp/

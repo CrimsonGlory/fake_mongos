@@ -1,7 +1,10 @@
+from gevent import monkey; monkey.patch_all()
 import pymongo
 import hashlib
 import logging
 from pymongo import MongoClient
+from bottle import route, run, response
+from secrets import *
 
 
 class FakeMongosObjectReader():
@@ -22,6 +25,11 @@ class FakeMongosObjectReader():
         self._id = doc['_id']
         self.length = doc['length']
         self.chunk_size = doc['chunkSize']
+
+
+    def delete(self):
+        for db_chunk in self.dbs_chunks:
+            cursor = db_chunk['fs.chunks'].delete_many({'files_id': self._id})
 
 
     def read(self):
@@ -73,6 +81,20 @@ class FakeMongos():
     def put(self, data):
         raise NotImplemented
 
+    def delete(self, params_to_search):
+        if not isinstance(params_to_search, dict):
+            raise ValueError("params_to_search not a dict. %s" % type(params_to_search))
+        if params_to_search.get('md5') is None and params_to_search.get('filename') is None:
+            raise ValueError("params_to_search invalid. %s" % params_to_search)
+        if params_to_search.get('md5') is not None and len(params_to_search['md5']) != 32:
+            raise ValueError("Invalid md5 in params_to_search")
+        doc = self.db_files['fs.files'].find_one(params_to_search)
+        if doc is None:
+            return None
+        fake_mongos_reader = FakeMongosObjectReader(doc, self.dbs_chunks)
+        fake_mongos_reader.delete()
+        self.db_files['fs.files'].delete_one({'_id': doc['_id']})
+
     def find_one(self, params_to_search):
         doc = self.db_files['fs.files'].find_one(params_to_search)
         if doc is None:
@@ -82,7 +104,18 @@ class FakeMongos():
         # should return an object with read() method
 
 
+@route('/get/sha1/<sha1>')
+def get_sha1(sha1):
+    binary = fake_mongos.find_one({'filename': sha1})
+    if binary is None:
+        response.status = 404
+        return ''
+    else:
+        binary = binary.read()
+        assert hashlib.sha1(binary).hexdigest() == sha1
+        return binary
+
+
 if __name__ == '__main__':
-    fake_mongos = FakeMongos(("10.136.0.3",37017),[("10.136.0.3",37017), ("10.136.0.4",37017)])
-    binary = fake_mongos.find_one({'md5': 'b8059d369b4f691836d810b48901ed76'}).read()
-    print("binary length=%s" % len(binary))
+    fake_mongos = FakeMongos(fs_files_db, chunk_shards)
+    run(host='0.0.0.0', port=4321, server='gevent')
