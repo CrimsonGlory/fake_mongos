@@ -27,7 +27,8 @@ class FakeMongosObjectReader():
         self.chunk_size = doc['chunkSize']
 
 
-    def delete(self):
+    def delete_chunks(self):
+        # Delete the chunks.
         for db_chunk in self.dbs_chunks:
             cursor = db_chunk['fs.chunks'].delete_many({'files_id': self._id})
 
@@ -52,6 +53,7 @@ class FakeMongosObjectReader():
         assert hashlib.md5(binary).hexdigest() == self.md5
         # returns the binary
         return binary
+
 
 class FakeMongos():
     def __init__(self, files_host, shards):
@@ -92,8 +94,9 @@ class FakeMongos():
         if doc is None:
             return None
         fake_mongos_reader = FakeMongosObjectReader(doc, self.dbs_chunks)
-        fake_mongos_reader.delete()
+        fake_mongos_reader.delete_chunks()
         self.db_files['fs.files'].delete_one({'_id': doc['_id']})
+        return 'deleted'
 
     def find_one(self, params_to_search):
         doc = self.db_files['fs.files'].find_one(params_to_search)
@@ -106,14 +109,27 @@ class FakeMongos():
 
 @route('/get/sha1/<sha1>')
 def get_sha1(sha1):
-    binary = fake_mongos.find_one({'filename': sha1})
-    if binary is None:
+    fm_reader = fake_mongos.find_one({'filename': sha1})
+    if fm_reader is None:
         response.status = 404
         return ''
     else:
-        binary = binary.read()
+        binary = fm_reader.read()
         assert hashlib.sha1(binary).hexdigest() == sha1
         return binary
+
+
+@route('/delete/sha1/<sha1>')
+def delete_sha1(sha1):
+    if len(sha1) != 40:
+        response.status = 400
+        return 'invalid_sha1'
+    status = fake_mongos.delete({'filename': sha1})
+    if status is None:
+        response.status = 404
+        return 'not_found'
+    else:
+        return 'deleted'
 
 
 if __name__ == '__main__':
